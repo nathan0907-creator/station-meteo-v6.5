@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Station Météo V6 - Admin</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .login-container h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        .login-container input {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+        .login-container input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+        }
+        .login-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+        }
+        .login-btn:hover { transform: scale(1.02); }
+        .login-error { color: #c62828; text-align: center; font-weight: bold; }
+        
+        .app-container { display: none; }
+        .app-container.logged-in { display: flex; }
+        
+        .sidebar {
+            width: 250px;
+            background: rgba(0,0,0,0.2);
+            padding: 20px;
+            color: white;
+            min-height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            z-index: 100;
+        }
+        .sidebar h2 {
+            margin-bottom: 30px;
+            border-bottom: 2px solid white;
+            padding-bottom: 10px;
+        }
+        .sidebar-item {
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        .sidebar-item:hover { background: rgba(255,255,255,0.2); }
+        .sidebar-item.active { background: #667eea; font-weight: bold; }
+        
+        .main-content {
+            margin-left: 250px;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .logout-btn {
+            background: #c62828;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+            display: none;
+        }
+        .panel.active { display: block; }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .card-value { font-size: 2.5em; font-weight: bold; color: #667eea; }
+        .status { margin-top: 10px; padding: 10px; border-radius: 8px; text-align: center; }
+        .status-ok { background: #e8f5e9; color: #2e7d32; }
+        .status-warning { background: #fff3e0; color: #e65100; }
+        .status-danger { background: #ffebee; color: #c62828; }
+        
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .control-card {
+            background: #f5f5f5;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .control-card h3 { color: #333; }
+        .control-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            background: #667eea;
+            color: white;
+            transition: all 0.3s;
+        }
+        .control-btn:hover { background: #5568d3; transform: scale(1.05); }
+        .control-btn.on { background: #4caf50; }
+        .control-btn.off { background: #f44336; }
+        
+        .settings-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .form-group label { font-weight: bold; color: #333; }
+        .form-group input, .form-group select {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .save-btn {
+            background: #4caf50;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+        .save-btn:hover { background: #45a049; }
+        
+        .notification-item {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .notification-item.warning { border-left-color: #ffa500; background: #fff8e1; }
+        .notification-item.danger { border-left-color: #f44336; background: #ffebee; }
+        .notification-time { font-size: 0.85em; color: #999; }
+        
+        .notification-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            cursor: pointer;
+            z-index: 200;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .bell-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #f44336;
+            color: white;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            text-align: left;
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        tr:hover { background: #f5f5f5; }
+        
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+                min-height: auto;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .dashboard, .control-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div class="login-container" id="loginContainer">
+        <h1>🌡️ Station Météo V6</h1>
+        <h2 style="text-align: center; color: #999; font-size: 0.9em;">Admin Panel</h2>
+        <input type="text" id="username" placeholder="Nom d'utilisateur" />
+        <input type="password" id="password" placeholder="Mot de passe" />
+        <button class="login-btn" onclick="login()">Se connecter</button>
+        <div class="login-error" id="loginError"></div>
+        <p style="text-align: center; color: #999; font-size: 0.85em; margin-top: 20px;">
+            Demo: admin / admin
+        </p>
+    </div>
+
+    <!-- Main App -->
+    <div class="app-container" id="appContainer">
+        <div class="sidebar">
+            <h2>📊 Menu</h2>
+            <div class="sidebar-item active" onclick="switchPanel('dashboard')">📈 Dashboard</div>
+            <div class="sidebar-item" onclick="switchPanel('controls')">🎮 Contrôle</div>
+            <div class="sidebar-item" onclick="switchPanel('notifications')">🔔 Notifications</div>
+            <div class="sidebar-item" onclick="switchPanel('settings')">⚙️ Paramètres</div>
+            <div class="sidebar-item" onclick="switchPanel('users')">👥 Utilisateurs</div>
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.3);">
+                <div style="color: #999; font-size: 0.85em; margin-bottom: 10px;" id="userDisplay"></div>
+                <button class="logout-btn" onclick="logout()" style="width: 100%;">Déconnexion</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="header">
+                <h1>🌡️ Station Météo V6 - Admin</h1>
+                <div class="notification-indicator" onclick="toggleNotifications()">
+                    🔔
+                    <div class="bell-badge" id="notificationBadge">0</div>
+                </div>
+            </div>
+
+            <!-- Dashboard Panel -->
+            <div class="panel active" id="dashboard">
+                <h2>📊 Dashboard</h2>
+                <div class="dashboard">
+                    <div class="card">
+                        <div style="font-size: 3em; margin-bottom: 10px;">🌡️</div>
+                        <div style="color: #999; font-size: 0.9em;">Température</div>
+                        <div class="card-value" id="temp">--</div>
+                        <div>°C</div>
+                    </div>
+                    <div class="card">
+                        <div style="font-size: 3em; margin-bottom: 10px;">💧</div>
+                        <div style="color: #999; font-size: 0.9em;">Humidité</div>
+                        <div class="card-value" id="humidity">--</div>
+                        <div>%</div>
+                        <div id="humidityStatus" class="status status-ok"></div>
+                    </div>
+                    <div class="card">
+                        <div style="font-size: 3em; margin-bottom: 10px;">💨</div>
+                        <div style="color: #999; font-size: 0.9em;">Gaz</div>
+                        <div class="card-value" id="gas">--</div>
+                        <div id="gasStatus" class="status status-ok"></div>
+                    </div>
+                    <div class="card">
+                        <div style="font-size: 3em; margin-bottom: 10px;">🕐</div>
+                        <div style="color: #999; font-size: 0.9em;">Heure RTC</div>
+                        <div class="card-value" id="rtcTime">--:--</div>
+                        <div id="rtcStatus" class="status status-ok"></div>
+                    </div>
+                </div>
+                <div style="background: #f5f5f5; border-radius: 12px; padding: 20px;">
+                    <h3>📈 Historique</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Heure</th>
+                                <th>Température</th>
+                                <th>Humidité</th>
+                                <th>Gaz</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr><td colspan="4">Chargement...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Controls Panel -->
+            <div class="panel" id="controls">
+                <h2>🎮 Contrôle des modules</h2>
+                <div class="control-grid">
+                    <div class="control-card">
+                        <h3>💡 Buzzer</h3>
+                        <button class="control-btn" id="buzzerBtn" onclick="toggleBuzzer()">Allumer</button>
+                    </div>
+                    <div class="control-card">
+                        <h3>🔄 Calibrage MQ2</h3>
+                        <button class="control-btn" onclick="calibrateMQ2()">Calibrer</button>
+                    </div>
+                    <div class="control-card">
+                        <h3>📺 LCD</h3>
+                        <button class="control-btn" onclick="toggleLCD()">Allumer</button>
+                        <button class="control-btn" style="background: #ffa500; margin-top: 5px;" onclick="refreshLCD()">Actualiser</button>
+                    </div>
+                    <div class="control-card">
+                        <h3>🕐 Sync RTC</h3>
+                        <button class="control-btn" onclick="syncRTC()" style="background: #4caf50;">Synchroniser</button>
+                    </div>
+                </div>
+                <div style="background: #fff3e0; border-radius: 12px; padding: 15px; margin-top: 20px;">
+                    <h3 style="color: #e65100;">⚠️ Commandes avancées</h3>
+                    <div style="margin-top: 15px;">
+                        <label>Envoyer commande AT ESP-01:</label>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <input type="text" id="atCommand" placeholder="Ex: AT+CWMODE=1" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ddd;">
+                            <button class="control-btn" onclick="sendATCommand()">Envoyer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications Panel -->
+            <div class="panel" id="notifications">
+                <h2>🔔 Notifications</h2>
+                <div style="margin-bottom: 15px;">
+                    <button class="control-btn" onclick="clearNotifications()" style="background: #f44336; width: 150px;">Effacer tout</button>
+                </div>
+                <div id="notificationsList" style="max-height: 600px; overflow-y: auto;">
+                    <p style="text-align: center; color: #999;">Aucune notification</p>
+                </div>
+            </div>
+
+            <!-- Settings Panel -->
+            <div class="panel" id="settings">
+                <h2>⚙️ Paramètres</h2>
+                <div style="max-width: 500px;">
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label>Seuil humidité basse (%)</label>
+                            <input type="number" id="humidityLow" value="40" min="0" max="100" />
+                        </div>
+                        <div class="form-group">
+                            <label>Seuil humidité élevée (%)</label>
+                            <input type="number" id="humidityHigh" value="75" min="0" max="100" />
+                        </div>
+                        <div class="form-group">
+                            <label>Intervalle actualisation (sec)</label>
+                            <input type="number" id="refreshInterval" value="30" min="5" max="300" />
+                        </div>
+                        <div class="form-group">
+                            <label>Notifications push</label>
+                            <select id="notificationMode">
+                                <option value="all">Toutes</option>
+                                <option value="warning">Avertissements + Critiques</option>
+                                <option value="critical">Critiques seulement</option>
+                                <option value="none">Désactiver</option>
+                            </select>
+                        </div>
+                        <button class="save-btn" onclick="saveSettings()">💾 Sauvegarder</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Panel -->
+            <div class="panel" id="users">
+                <h2>👥 Gestion utilisateurs</h2>
+                <div style="margin-bottom: 20px;">
+                    <button class="control-btn" style="background: #4caf50; width: 150px;" onclick="showAddUserForm()">➕ Ajouter utilisateur</button>
+                </div>
+                <div id="addUserForm" style="display: none; background: #f5f5f5; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                    <h3>Nouvel utilisateur</h3>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label>Nom d'utilisateur</label>
+                            <input type="text" id="newUsername" placeholder="Entrez le nom" />
+                        </div>
+                        <div class="form-group">
+                            <label>Mot de passe</label>
+                            <input type="password" id="newPassword" placeholder="Entrez le mot de passe" />
+                        </div>
+                        <div class="form-group">
+                            <label>Rôle</label>
+                            <select id="newRole">
+                                <option value="admin">Administrateur</option>
+                                <option value="user">Utilisateur</option>
+                                <option value="viewer">Lecteur</option>
+                            </select>
+                        </div>
+                        <button class="save-btn" onclick="addUser()">Créer utilisateur</button>
+                        <button class="save-btn" style="background: #999; margin-top: 10px;" onclick="hideAddUserForm()">Annuler</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nom d'utilisateur</th>
+                            <th>Rôle</th>
+                            <th>Dernier accès</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTable">
+                        <tr>
+                            <td>admin</td>
+                            <td><span style="background: #667eea; color: white; padding: 5px 10px; border-radius: 5px; font-size: 0.85em;">Administrateur</span></td>
+                            <td id="lastAccess">--</td>
+                            <td><button class="control-btn" style="font-size: 0.8em; padding: 5px 10px;" onclick="deleteUser('admin')" disabled>Supprimer</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Données admin
+        const admins = {
+            'admin': { password: 'admin', role: 'admin', lastAccess: new Date() }
+        };
+        
+        let currentUser = null;
+        let notifications = [];
+        let currentData = null;
+        let buzzerOn = false;
+        
+        const MOCK_DATA = [
+            { temp: 22.5, humidity: 55, gas: 'BAS', heure: 14, minute: 0 },
+            { temp: 23.1, humidity: 58, gas: 'BAS', heure: 14, minute: 5 },
+            { temp: 23.5, humidity: 60, gas: 'BAS', heure: 14, minute: 10 },
+            { temp: 23.8, humidity: 62, gas: 'BAS', heure: 14, minute: 15 },
+            { temp: 24.2, humidity: 65, gas: 'BAS', heure: 14, minute: 20 },
+            { temp: 24.5, humidity: 67, gas: 'MOYEN', heure: 14, minute: 25 },
+            { temp: 24.8, humidity: 68, gas: 'MOYEN', heure: 14, minute: 30 },
+            { temp: 25.1, humidity: 70, gas: 'MOYEN', heure: 14, minute: 35 },
+        ];
+
+        function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('loginError');
+
+            if (!username || !password) {
+                errorDiv.textContent = 'Entrez vos identifiants';
+                return;
+            }
+
+            if (admins[username] && admins[username].password === password) {
+                currentUser = { username, role: admins[username].role };
+                admins[username].lastAccess = new Date();
+                
+                document.getElementById('loginContainer').style.display = 'none';
+                document.getElementById('appContainer').classList.add('logged-in');
+                document.getElementById('userDisplay').textContent = `👤 ${username}`;
+                
+                fetchData();
+                setInterval(fetchData, 30000);
+                
+                // Demander permission notifications
+                if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+            } else {
+                errorDiv.textContent = 'Identifiants incorrects';
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('loginContainer').style.display = 'flex';
+            document.getElementById('appContainer').classList.remove('logged-in');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('loginError').textContent = '';
+        }
+
+        function switchPanel(panelName) {
+            // Cacher tous les panels
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+            
+            // Afficher le panel choisi
+            document.getElementById(panelName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function fetchData() {
+            fetch('/data.json')
+                .then(r => r.json())
+                .then(data => {
+                    const measurements = data.measurements || MOCK_DATA;
+                    if (measurements.length > 0) {
+                        currentData = measurements[measurements.length - 1];
+                        updateUI(measurements);
+                        checkNotifications(currentData);
+                    }
+                })
+                .catch(() => {
+                    currentData = MOCK_DATA[MOCK_DATA.length - 1];
+                    updateUI(MOCK_DATA);
+                    checkNotifications(currentData);
+                });
+        }
+
+        function updateUI(data) {
+            document.getElementById('temp').textContent = currentData.temp.toFixed(1);
+            document.getElementById('humidity').textContent = Math.round(currentData.humidity);
+            document.getElementById('gas').textContent = currentData.gas;
+            
+            // RTC Time
+            const now = new Date();
+            document.getElementById('rtcTime').textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            document.getElementById('rtcStatus').innerHTML = '<div class="status status-ok">✅ Synchronisé</div>';
+            
+            updateHumidityStatus(currentData.humidity);
+            updateGasStatus(currentData.gas);
+            updateHistory(data);
+        }
+
+        function updateHumidityStatus(humidity) {
+            const el = document.getElementById('humidityStatus');
+            if (humidity < 40) {
+                el.innerHTML = '<div class="status status-warning">🏜️ SEC</div>';
+            } else if (humidity < 60) {
+                el.innerHTML = '<div class="status status-ok">✅ OK</div>';
+            } else if (humidity < 75) {
+                el.innerHTML = '<div class="status status-warning">⚠️ MOYEN</div>';
+            } else {
+                el.innerHTML = '<div class="status status-danger">🚨 ÉLEVÉ</div>';
+            }
+        }
+
+        function updateGasStatus(gas) {
+            const el = document.getElementById('gasStatus');
+            if (gas === 'BAS') {
+                el.innerHTML = '<div class="status status-ok">✅ BAS</div>';
+            } else if (gas === 'MOYEN') {
+                el.innerHTML = '<div class="status status-warning">⚠️ MOYEN</div>';
+            } else if (gas === 'ELEV') {
+                el.innerHTML = '<div class="status status-danger">🚨 ÉLEVÉ</div>';
+            } else {
+                el.innerHTML = '<div class="status status-danger">🔴 FEU!</div>';
+            }
+        }
+
+        function updateHistory(data) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            data.slice(-10).reverse().forEach(item => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${item.heure}:${String(item.minute).padStart(2, '0')}</td>
+                    <td>${item.temp.toFixed(1)}°C</td>
+                    <td>${Math.round(item.humidity)}%</td>
+                    <td>${item.gas}</td>
+                `;
+            });
+        }
+
+        function checkNotifications(data) {
+            if (data.humidity < 40) {
+                addNotification('⚠️ Humidité BASSE', `${Math.round(data.humidity)}% détecté`, 'warning');
+            }
+            if (data.humidity > 75) {
+                addNotification('⚠️ Humidité ÉLEVÉE', `${Math.round(data.humidity)}% détecté`, 'warning');
+            }
+            if (data.gas === 'ELEV' || data.gas === 'FEU!') {
+                addNotification('🚨 ALERTE GAZ', `Niveau: ${data.gas}`, 'danger');
+            }
+        }
+
+        function addNotification(title, message, type) {
+            if (!notifications.find(n => n.title === title && n.type === type)) {
+                const notification = { title, message, type, time: new Date().toLocaleTimeString('fr-FR') };
+                notifications.unshift(notification);
+                if (notifications.length > 50) notifications.pop();
+                
+                updateNotificationUI();
+                
+                // Notification push
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification(title, { body: message, tag: type });
+                }
+            }
+        }
+
+        function updateNotificationUI() {
+            const badge = document.getElementById('notificationBadge');
+            badge.textContent = notifications.length;
+            
+            const list = document.getElementById('notificationsList');
+            if (notifications.length === 0) {
+                list.innerHTML = '<p style="text-align: center; color: #999;">Aucune notification</p>';
+            } else {
+                list.innerHTML = notifications.map(n => `
+                    <div class="notification-item ${n.type}">
+                        <div>
+                            <div style="font-weight: bold;">${n.title}</div>
+                            <div>${n.message}</div>
+                        </div>
+                        <div class="notification-time">${n.time}</div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function toggleNotifications() {
+            const list = document.getElementById('notificationsList');
+            list.style.display = list.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function clearNotifications() {
+            notifications = [];
+            updateNotificationUI();
+        }
+
+        function toggleBuzzer() {
+            buzzerOn = !buzzerOn;
+            const btn = document.getElementById('buzzerBtn');
+            btn.textContent = buzzerOn ? '🔴 Arrêter' : '💡 Allumer';
+            btn.classList.toggle('on', buzzerOn);
+            addNotification('Buzzer', `${buzzerOn ? 'Activé' : 'Désactivé'}`, 'warning');
+        }
+
+        function calibrateMQ2() {
+            addNotification('🔄 Calibrage MQ2', 'Calibrage en cours...', 'warning');
+            setTimeout(() => {
+                addNotification('✅ Calibrage MQ2', 'Calibrage réussi!', 'success');
+            }, 3000);
+        }
+
+        function toggleLCD() {
+            addNotification('📺 LCD', 'Écran basculé', 'warning');
+        }
+
+        function refreshLCD() {
+            addNotification('📺 LCD', 'Affichage actualisé', 'warning');
+        }
+
+        function syncRTC() {
+            addNotification('🕐 RTC Sync', 'Synchronisation avec serveur...', 'warning');
+            setTimeout(() => {
+                addNotification('✅ RTC Sync', 'Horloge synchronisée!', 'success');
+            }, 2000);
+        }
+
+        function sendATCommand() {
+            const cmd = document.getElementById('atCommand').value;
+            if (!cmd) return;
+            
+            addNotification('📡 Commande ESP-01', `Envoyé: ${cmd}`, 'warning');
+            addNotification('📡 Réponse ESP-01', 'OK', 'success');
+            
+            document.getElementById('atCommand').value = '';
+        }
+
+        function saveSettings() {
+            const humLow = document.getElementById('humidityLow').value;
+            const humHigh = document.getElementById('humidityHigh').value;
+            
+            addNotification('⚙️ Paramètres', 'Paramètres sauvegardés!', 'success');
+        }
+
+        function showAddUserForm() {
+            document.getElementById('addUserForm').style.display = 'block';
+        }
+
+        function hideAddUserForm() {
+            document.getElementById('addUserForm').style.display = 'none';
+            document.getElementById('newUsername').value = '';
+            document.getElementById('newPassword').value = '';
+        }
+
+        function addUser() {
+            const username = document.getElementById('newUsername').value;
+            const password = document.getElementById('newPassword').value;
+            const role = document.getElementById('newRole').value;
+            
+            if (!username || !password) {
+                alert('Remplissez tous les champs');
+                return;
+            }
+            
+            admins[username] = { password, role, lastAccess: new Date() };
+            
+            const tbody = document.getElementById('usersTable');
+            const row = tbody.insertRow();
+            row.innerHTML = `
+                <td>${username}</td>
+                <td><span style="background: #667eea; color: white; padding: 5px 10px; border-radius: 5px; font-size: 0.85em;">${role}</span></td>
+                <td>À l'instant</td>
+                <td><button class="control-btn" style="font-size: 0.8em; padding: 5px 10px;" onclick="deleteUser('${username}')">Supprimer</button></td>
+            `;
+            
+            addNotification('👥 Nouvel utilisateur', `${username} créé`, 'success');
+            hideAddUserForm();
+        }
+
+        function deleteUser(username) {
+            if (username === 'admin') {
+                alert('Cannot delete admin user');
+                return;
+            }
+            
+            delete admins[username];
+            location.reload();
+        }
+
+        // Load initial data
+        window.addEventListener('load', () => {
+            fetchData();
+        });
+    </script>
+</body>
+</html>

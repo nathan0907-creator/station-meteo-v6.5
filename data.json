@@ -1,0 +1,68 @@
+{
+  "measurements": [
+    {
+      "temp": 22.5,
+      "humidity": 55,
+      "gas": "BAS",
+      "heure": 14,
+      "minute": 0,
+      "timestamp": "2024-03-20T14:00:00.000Z"
+    },
+    {
+      "temp": 23.1,
+      "humidity": 58,
+      "gas": "BAS",
+      "heure": 14,
+      "minute": 5,
+      "timestamp": "2024-03-20T14:05:00.000Z"
+    },
+    {
+      "temp": 23.5,
+      "humidity": 60,
+      "gas": "BAS",
+      "heure": 14,
+      "minute": 10,
+      "timestamp": "2024-03-20T14:10:00.000Z"
+    },
+    {
+      "temp": 23.8,
+      "humidity": 62,
+      "gas": "BAS",
+      "heure": 14,
+      "minute": 15,
+      "timestamp": "2024-03-20T14:15:00.000Z"
+    },
+    {
+      "temp": 24.2,
+      "humidity": 65,
+      "gas": "BAS",
+      "heure": 14,
+      "minute": 20,
+      "timestamp": "2024-03-20T14:20:00.000Z"
+    },
+    {
+      "temp": 24.5,
+      "humidity": 67,
+      "gas": "MOYEN",
+      "heure": 14,
+      "minute": 25,
+      "timestamp": "2024-03-20T14:25:00.000Z"
+    },
+    {
+      "temp": 24.8,
+      "humidity": 68,
+      "gas": "MOYEN",
+      "heure": 14,
+      "minute": 30,
+      "timestamp": "2024-03-20T14:30:00.000Z"
+    },
+    {
+      "temp": 25.1,
+      "humidity": 70,
+      "gas": "MOYEN",
+      "heure": 14,
+      "minute": 35,
+      "timestamp": "2024-03-20T14:35:00.000Z"
+    }
+  ]
+}
