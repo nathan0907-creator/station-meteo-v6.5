@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Station Météo V6</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌡️</text></svg>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -154,6 +155,18 @@
             border-radius: 8px;
         }
         .ai-advice-title { font-weight: bold; color: #667eea; margin-bottom: 10px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-value { font-size: 1.8em; font-weight: bold; color: #333; }
+        .stat-sub { color: #777; font-size: 0.9em; margin-top: 6px; }
+        .trend { font-size: 0.9em; margin-top: 8px; color: #777; }
+        .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 10px; flex-wrap: wrap; }
+        .btn { padding: 10px 16px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.95em; }
+        .btn:hover { background: #5568d6; }
         footer { text-align: center; color: white; margin-top: 30px; opacity: 0.8; }
     </style>
 </head>
@@ -183,6 +196,7 @@
                 <div class="card-title">Température</div>
                 <div class="card-value" id="temp">--</div>
                 <div>°C</div>
+                <div class="trend" id="tempTrend"></div>
             </div>
             
             <div class="card">
@@ -201,6 +215,29 @@
             </div>
         </div>
         
+        <div class="stats">
+            <div class="card">
+                <div class="card-title">🥵 Ressenti</div>
+                <div class="stat-value" id="feelsLike">--</div>
+                <div class="stat-sub">Indice de chaleur (temp. + humidité)</div>
+            </div>
+            <div class="card">
+                <div class="card-title">💦 Point de rosée</div>
+                <div class="stat-value" id="dewPoint">--</div>
+                <div class="stat-sub" id="dewComfort"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">🌡️ Température (période)</div>
+                <div class="stat-value" id="tempRange">--</div>
+                <div class="stat-sub" id="tempAvg"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">💧 Humidité (période)</div>
+                <div class="stat-value" id="humRange">--</div>
+                <div class="stat-sub" id="humAvg"></div>
+            </div>
+        </div>
+        
         <div class="charts">
             <div class="chart-card">
                 <h3 style="margin-bottom: 20px;">📈 Température (24h)</h3>
@@ -214,7 +251,10 @@
         </div>
         
         <div class="history">
-            <h2 style="margin-bottom: 20px;">📋 Historique</h2>
+            <div class="history-header">
+                <h2>📋 Historique</h2>
+                <button class="btn" onclick="exportCSV()">⬇️ Exporter en CSV</button>
+            </div>
             <table>
                 <thead>
                     <tr>
@@ -252,6 +292,7 @@
         let tempChart, humidityChart;
         let notifications = [];
         let currentData = null;
+        let allData = [];
         
         const MOCK_DATA = [
             { temp: 22.5, humidity: 55, gas: 'BAS', heure: 14, minute: 0 },
@@ -265,7 +306,8 @@
         ];
         
         window.addEventListener('load', function() {
-            initCharts();
+            // Sans Chart.js (CDN injoignable), le reste du tableau de bord doit quand même fonctionner
+            if (typeof Chart !== 'undefined') initCharts();
             fetchData();
             setInterval(fetchData, 30000);
         });
@@ -332,6 +374,7 @@
             updateHumidityStatus(currentData.humidity);
             updateGasStatus(currentData.gas);
             updateHistory(data);
+            updateStats(data);
             updateCharts(data);
             checkNotifications(currentData);
         }
@@ -384,7 +427,80 @@
             });
         }
         
+        // Point de rosée (formule de Magnus), en °C
+        function dewPoint(t, rh) {
+            const a = 17.62, b = 243.12;
+            const g = Math.log(Math.max(rh, 1) / 100) + (a * t) / (b + t);
+            return (b * g) / (a - g);
+        }
+        
+        // Température ressentie (indice de chaleur NOAA), en °C
+        function heatIndex(t, rh) {
+            const f = t * 9 / 5 + 32;
+            let hi = 0.5 * (f + 61 + (f - 68) * 1.2 + rh * 0.094);
+            if ((hi + f) / 2 >= 80) {
+                hi = -42.379 + 2.04901523 * f + 10.14333127 * rh - 0.22475541 * f * rh
+                    - 0.00683783 * f * f - 0.05481717 * rh * rh + 0.00122874 * f * f * rh
+                    + 0.00085282 * f * rh * rh - 0.00000199 * f * f * rh * rh;
+            } else {
+                hi = (hi + f) / 2;
+            }
+            return (hi - 32) * 5 / 9;
+        }
+        
+        function dewComfort(td) {
+            if (td < 10) return '😌 Air sec et agréable';
+            if (td < 16) return '🙂 Confortable';
+            if (td < 18) return '😐 Légèrement lourd';
+            if (td < 21) return '😓 Lourd';
+            return '🥵 Très lourd, étouffant';
+        }
+        
+        function updateStats(data) {
+            allData = data;
+            const t = currentData.temp, rh = currentData.humidity;
+            const td = dewPoint(t, rh);
+            document.getElementById('feelsLike').textContent = `${heatIndex(t, rh).toFixed(1)} °C`;
+            document.getElementById('dewPoint').textContent = `${td.toFixed(1)} °C`;
+            document.getElementById('dewComfort').textContent = dewComfort(td);
+            
+            const temps = data.map(d => d.temp), hums = data.map(d => d.humidity);
+            const avg = arr => arr.reduce((s, v) => s + v, 0) / arr.length;
+            document.getElementById('tempRange').textContent = `${Math.min(...temps).toFixed(1)} → ${Math.max(...temps).toFixed(1)} °C`;
+            document.getElementById('tempAvg').textContent = `Moyenne : ${avg(temps).toFixed(1)} °C sur ${data.length} mesures`;
+            document.getElementById('humRange').textContent = `${Math.round(Math.min(...hums))} → ${Math.round(Math.max(...hums))} %`;
+            document.getElementById('humAvg').textContent = `Moyenne : ${Math.round(avg(hums))} %`;
+            
+            // Tendance : dernière mesure comparée à celle d'il y a ~3 relevés
+            const trendEl = document.getElementById('tempTrend');
+            if (data.length >= 2) {
+                const ref = data[Math.max(0, data.length - 4)];
+                const diff = t - ref.temp;
+                if (Math.abs(diff) < 0.2) trendEl.textContent = '➡️ Stable';
+                else trendEl.textContent = `${diff > 0 ? '↗️ En hausse' : '↘️ En baisse'} (${diff > 0 ? '+' : ''}${diff.toFixed(1)} °C)`;
+            }
+        }
+        
+        function exportCSV() {
+            if (!allData.length) return;
+            const rows = [['date', 'heure', 'temperature_c', 'humidite_pct', 'gaz', 'point_de_rosee_c', 'ressenti_c']];
+            allData.forEach(d => {
+                const date = d.timestamp ? d.timestamp.slice(0, 10) : '';
+                rows.push([date, `${d.heure}:${String(d.minute).padStart(2, '0')}`, d.temp, d.humidity, d.gas,
+                    dewPoint(d.temp, d.humidity).toFixed(1), heatIndex(d.temp, d.humidity).toFixed(1)]);
+            });
+            // Point-virgule + BOM pour une ouverture directe dans Excel (FR)
+            const csv = '\ufeff' + rows.map(r => r.join(';')).join('\n');
+            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `station-meteo-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
         function updateCharts(data) {
+            if (!tempChart) return;
             const labels = data.map(d => `${d.heure}:${String(d.minute).padStart(2, '0')}`);
             const temps = data.map(d => d.temp);
             const humidities = data.map(d => d.humidity);
