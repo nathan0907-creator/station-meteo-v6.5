@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Veilleur</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%23e8b04a%22/><circle cx=%2250%22 cy=%2250%22 r=%2216%22 fill=%22%23111%22/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<style>
+  /* Layout : écran de contrôle — l'image caméra domine, réglages en colonne à droite, journal des événements dessous. */
+  :root {
+    --bg: #121416;            /* boîtier de caméra */
+    --panel: #1b1f22;
+    --panel-2: #23282c;
+    --line: #30373c;
+    --fg: #e9ecec;
+    --muted: #8e999f;
+    --amber: #e8b04a;         /* voyant de veille */
+    --amber-ink: #1d1505;
+    --rec: #ef4d3c;           /* enregistrement / alerte */
+    --ok: #4cc38a;
+    --font-ui: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.45; }
+  button, input, select { font: inherit; color: inherit; }
+  .app { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 16px 48px; display: grid; gap: 16px; }
+
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .eye { width: 34px; height: 34px; border-radius: 50%; background: var(--amber); display: grid; place-items: center; }
+  .eye::after { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); }
+  .brand h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+  .brand p { margin: 0; color: var(--muted); font-size: 13px; }
+  .pill { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 8px; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill[data-state="armed"] { border-color: var(--amber); color: var(--amber); }
+  .pill[data-state="armed"]::before { background: var(--amber); animation: blink 1.4s infinite; }
+  .pill[data-state="alert"] { border-color: var(--rec); color: var(--rec); }
+  .pill[data-state="alert"]::before { background: var(--rec); animation: blink .5s infinite; }
+  .pill[data-state="arming"] { color: var(--fg); }
+  @keyframes blink { 50% { opacity: .2; } }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  .monitor { background: #000; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; }
+  .screen { position: relative; aspect-ratio: 4 / 3; max-width: 100%; background: #050606; }
+  .screen video, .screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .screen.night video { filter: brightness(1.8) contrast(1.15) grayscale(1); }
+  .osd { position: absolute; left: 12px; top: 10px; right: 12px; display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 12px; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; gap: 8px; }
+  .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 12px; padding: 24px; color: var(--muted); }
+  .empty strong { color: var(--fg); font-size: 20px; }
+  .countdown { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-mono); font-size: clamp(64px, 14vw, 140px); color: var(--amber); background: rgb(0 0 0 / .45); }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px; background: var(--panel); border-top: 1px solid var(--line); }
+
+  .btn { border: 1px solid var(--line); background: var(--panel-2); padding: 10px 14px; border-radius: 8px; cursor: pointer; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
+  .btn:hover { border-color: var(--muted); }
+  .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .btn.primary { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); font-weight: 700; }
+  .btn.danger { background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 700; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn[aria-pressed="true"] { border-color: var(--amber); color: var(--amber); }
+
+  .side { display: grid; gap: 12px; min-width: 0; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 12px; }
+  .box h2 { margin: 0; font-size: 13px; font-family: var(--font-mono); font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .presets .btn { justify-content: center; padding: 8px 6px; font-size: 13px; flex-direction: column; gap: 2px; }
+  .presets .btn span { font-size: 18px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .row label { cursor: pointer; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { position: relative; }
+  .chip input { position: absolute; opacity: 0; }
+  .chip span { display: inline-block; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; font-size: 13px; }
+  .chip input:checked + span { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); font-weight: 700; }
+  .chip input:focus-visible + span { outline: 2px solid var(--amber); outline-offset: 2px; }
+  input[type="range"] { width: 100%; accent-color: var(--amber); }
+  input[type="text"] { width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .switch { appearance: none; width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--fg); transition: transform .15s; }
+  .switch:checked { background: var(--amber); }
+  .switch:checked::after { transform: translateX(16px); background: var(--amber-ink); }
+  .small { font-size: 12px; color: var(--muted); }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  .meter { position: relative; height: 14px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--ok); transition: width .08s linear; }
+  .meter .fill.hot { background: var(--rec); }
+  .meter .mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--amber); }
+
+  .log-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .log-head h2 { margin: 0; font-size: 20px; font-weight: 700; }
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stat { font-family: var(--font-mono); font-size: 12px; padding: 4px 10px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+  .events { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .event { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: grid; }
+  .event img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #000; cursor: zoom-in; }
+  .event .meta { padding: 8px 10px; display: grid; gap: 2px; border-top: 3px solid var(--muted); }
+  .event[data-type="ia"] .meta { border-top-color: var(--rec); }
+  .event[data-type="mouvement"] .meta { border-top-color: var(--amber); }
+  .event[data-type="son"] .meta { border-top-color: #6aa6e8; }
+  .event .what { font-weight: 700; }
+  .event .when { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .no-events { color: var(--muted); padding: 24px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; }
+
+  .viewer { position: fixed; inset: 0; background: rgb(0 0 0 / .9); display: grid; place-items: center; padding: 16px; z-index: 10; }
+  .viewer img { max-width: 100%; max-height: 80vh; border-radius: 6px; }
+  .viewer .actions { display: flex; gap: 8px; margin-top: 12px; justify-content: center; }
+
+  .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 8px; z-index: 20; max-width: calc(100% - 32px); }
+  .heard { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-height: 1.4em; }
+  footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="eye" aria-hidden="true"></div>
+      <div>
+        <h1>Veilleur</h1>
+        <p>Surveillance de la maison avec IA · tout reste sur cet appareil</p>
+      </div>
+    </div>
+    <span class="pill" id="status" data-state="off" role="status">Caméra éteinte</span>
+  </header>
+
+  <div class="layout">
+    <section class="monitor" aria-label="Image de la caméra">
+      <div class="screen" id="screen">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="osd"><span id="osdRoom">SALON</span><span id="osdClock">--:--:--</span></div>
+        <div class="empty" id="empty">
+          <strong>Pose l'appareil face à la pièce</strong>
+          <span>Un vieux téléphone ou portable branché sur secteur fait très bien l'affaire.</span>
+          <div><button class="btn primary" id="startBtn" type="button">📷 Allumer la caméra</button></div>
+        </div>
+        <div class="countdown" id="countdown" hidden></div>
+      </div>
+      <div class="controls">
+        <button class="btn primary" id="armBtn" type="button" disabled>🛡️ Activer la surveillance</button>
+        <button class="btn" id="snapBtn" type="button" disabled>📸 Photo</button>
+        <button class="btn" id="nightBtn" type="button" aria-pressed="false" disabled>🌙 Mode nuit</button>
+        <button class="btn" id="voiceBtn" type="button" aria-pressed="false">🎙️ Commandes vocales</button>
+        <button class="btn" id="stopBtn" type="button" disabled>⏻ Éteindre</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="box">
+        <h2>Mode</h2>
+        <div class="presets">
+          <button class="btn" type="button" data-preset="absence"><span>🏠</span>Absence</button>
+          <button class="btn" type="button" data-preset="bebe"><span>👶</span>Babyphone</button>
+          <button class="btn" type="button" data-preset="animaux"><span>🐾</span>Animaux</button>
+        </div>
+        <div>
+          <label class="small" for="room">Nom de la pièce (annoncé à voix haute)</label>
+          <input type="text" id="room" value="salon" maxlength="30">
+        </div>
+      </div>
+
+      <div class="box">
+        <h2>Détection IA <label class="row"><input type="checkbox" class="switch" id="aiOn" checked aria-label="Activer la détection IA"></label></h2>
+        <div class="chips" id="classes"></div>
+        <div>
+          <div class="row"><label for="conf" class="small">Certitude minimale</label><span class="mono small" id="confVal">60 %</span></div>
+          <input type="range" id="conf" min="30" max="90" value="60">
+        </div>
+        <div class="small" id="aiState">L'IA se charge au démarrage de la caméra.</div>
+      </div>
+
+      <div class="box">
+        <h2>Mouvement <input type="checkbox" class="switch" id="motionOn" checked aria-label="Activer la détection de mouvement"></h2>
+        <div>
+          <div class="row"><label for="motionSens" class="small">Sensibilité</label><span class="mono small" id="motionVal">50</span></div>
+          <input type="range" id="motionSens" min="1" max="100" value="50">
+        </div>
+        <div class="meter" aria-hidden="true"><div class="fill" id="motionFill"></div><div class="mark" id="motionMark"></div></div>
+      </div>
+
+      <div class="box">
+        <h2>Son (micro) <input type="checkbox" class="switch" id="soundOn" checked aria-label="Activer la détection de bruit"></h2>
+        <div>
+          <div class="row"><label for="soundThr" class="small">Seuil de bruit</label><span class="mono small" id="soundVal">65</span></div>
+          <input type="range" id="soundThr" min="20" max="95" value="65">
+        </div>
+        <div class="meter" aria-hidden="true"><div class="fill" id="soundFill"></div><div class="mark" id="soundMark"></div></div>
+        <div class="small" id="soundState">Le micro démarre avec la caméra.</div>
+      </div>
+
+      <div class="box">
+        <h2>Alertes</h2>
+        <div class="row"><label for="alBeep">Bip sonore</label><input type="checkbox" class="switch" id="alBeep" checked></div>
+        <div class="row"><label for="alVoice">Annonce vocale</label><input type="checkbox" class="switch" id="alVoice" checked></div>
+        <div class="row"><label for="alNotif">Notification du navigateur</label><input type="checkbox" class="switch" id="alNotif"></div>
+        <div class="row"><label for="cooldown" class="small">Pause entre deux alertes</label><span class="mono small" id="cooldownVal">20 s</span></div>
+        <input type="range" id="cooldown" min="5" max="120" step="5" value="20">
+      </div>
+
+      <div class="box">
+        <h2>Voix</h2>
+        <p class="small" style="margin:0">Dis « <b>Veilleur, active</b> », « <b>désactive</b> », « <b>photo</b> », « <b>mode nuit</b> » ou « <b>rapport</b> ».</p>
+        <div class="heard" id="heard" aria-live="polite"></div>
+      </div>
+    </aside>
+  </div>
+
+  <section style="display:grid; gap:12px">
+    <div class="log-head">
+      <h2>Journal</h2>
+      <div class="stats" id="stats"></div>
+      <button class="btn" id="clearBtn" type="button">🗑️ Vider le journal</button>
+    </div>
+    <div class="events" id="events"></div>
+  </section>
+
+  <footer>
+    Les images, le son et l'analyse IA (TensorFlow.js, modèle COCO-SSD) restent dans ce navigateur : rien n'est envoyé sur Internet.
+    Exception : les commandes vocales utilisent la reconnaissance vocale du navigateur, qui peut passer par les serveurs de Google sous Chrome.
+    Ouvre la page en <span class="mono">https://</span> ou sur <span class="mono">localhost</span>, sinon le navigateur refuse la caméra.
+  </footer>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <div>
+    <img id="viewerImg" alt="Capture de l'événement">
+    <div class="actions">
+      <a class="btn primary" id="viewerDl" download>⬇️ Télécharger</a>
+      <button class="btn" id="viewerClose" type="button">Fermer</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ---------- Réglages ---------- */
+const MOTION_SCALE = 0.25; // fraction max de pixels changés affichée sur la jauge
+function motionThreshold(sens) { return 0.2 * Math.pow(1 - sens / 100, 2) + 0.004; } // sensibilité 100 → 0,4 % de l'image
+const CLASSES = { person: 'Personne', cat: 'Chat', dog: 'Chien', bird: 'Oiseau' };
+const PRESETS = {
+  absence: { aiOn: true, classes: ['person'], motionOn: true, motionSens: 50, soundOn: true, soundThr: 70, alVoice: true },
+  bebe:    { aiOn: false, classes: [], motionOn: true, motionSens: 30, soundOn: true, soundThr: 55, alVoice: false },
+  animaux: { aiOn: true, classes: ['cat', 'dog'], motionOn: false, motionSens: 50, soundOn: true, soundThr: 75, alVoice: true }
+};
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('veilleur:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('veilleur:' + k, JSON.stringify(v)); return true; } catch { return false; } }
+};
+
+$('classes').innerHTML = Object.entries(CLASSES).map(([k, v]) =>
+  `<label class="chip"><input type="checkbox" value="${k}"><span>${v}</span></label>`).join('');
+
+const SETTING_IDS = ['aiOn', 'conf', 'motionOn', 'motionSens', 'soundOn', 'soundThr', 'alBeep', 'alVoice', 'alNotif', 'cooldown', 'room'];
+function readSettings() {
+  const s = {};
+  SETTING_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.type === 'range' ? +el.value : el.value; });
+  s.classes = [...$('classes').querySelectorAll('input:checked')].map(i => i.value);
+  return s;
+}
+function applySettings(s) {
+  SETTING_IDS.forEach(id => { if (s[id] === undefined) return; const el = $(id); if (el.type === 'checkbox') el.checked = s[id]; else el.value = s[id]; });
+  if (s.classes) $('classes').querySelectorAll('input').forEach(i => i.checked = s.classes.includes(i.value));
+  refreshLabels();
+}
+function refreshLabels() {
+  const s = readSettings();
+  $('confVal').textContent = s.conf + ' %';
+  $('motionVal').textContent = s.motionSens;
+  $('soundVal').textContent = s.soundThr;
+  $('cooldownVal').textContent = s.cooldown + ' s';
+  $('soundMark').style.left = s.soundThr + '%';
+  $('motionMark').style.left = motionThreshold(s.motionSens) * 100 / MOTION_SCALE + '%';
+  $('osdRoom').textContent = (s.room || 'pièce').toUpperCase();
+  store.set('settings', s);
+  return s;
+}
+applySettings(store.get('settings', { classes: ['person'] }));
+document.querySelector('.side').addEventListener('input', refreshLabels);
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+  applySettings(PRESETS[b.dataset.preset]);
+  toast(`Mode ${b.textContent.trim()} appliqué`);
+}));
+
+/* ---------- État ---------- */
+let stream = null, model = null, audioCtx = null, analyser = null, audioBuf = null;
+let armed = false, arming = null, night = false, loopId = null;
+let prevFrame = null, lastDetect = 0, detections = [], motionLevel = 0, soundLevel = 0, loudSince = 0;
+const lastAlert = {};
+let events = store.get('events', []);
+let wakeLock = null;
+
+const video = $('video'), overlay = $('overlay'), octx = overlay.getContext('2d');
+const small = document.createElement('canvas'); small.width = 64; small.height = 48;
+const sctx = small.getContext('2d', { willReadFrequently: true });
+
+function setStatus(state, text) { const p = $('status'); p.dataset.state = state; p.textContent = text; }
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 3000); }
+
+/* ---------- Caméra + micro ---------- */
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) { toast("Ce navigateur n'a pas accès à la caméra. Ouvre la page en https ou sur localhost."); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: { echoCancellation: false, noiseSuppression: false } });
+  } catch (e) {
+    try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); toast('Micro indisponible : seule l’image sera surveillée.'); }
+    catch { toast("Accès à la caméra refusé. Autorise-le dans la barre d'adresse puis réessaie."); return; }
+  }
+  video.srcObject = stream; await video.play();
+  $('empty').hidden = true;
+  ['armBtn', 'snapBtn', 'nightBtn', 'stopBtn'].forEach(id => $(id).disabled = false);
+  setStatus('on', 'Caméra allumée');
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (stream.getAudioTracks().length) {
+    analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    audioBuf = new Float32Array(analyser.fftSize);
+    $('soundState').textContent = 'Micro actif.';
+  } else $('soundState').textContent = 'Pas de micro.';
+
+  loadModel();
+  loop();
+}
+async function loadModel() {
+  if (model) return;
+  if (typeof cocoSsd === 'undefined') { $('aiState').textContent = "L'IA n'a pas pu être téléchargée (connexion ?). Mouvement et son fonctionnent quand même."; return; }
+  $('aiState').textContent = "Chargement de l'IA… (quelques secondes la première fois)";
+  try { model = await cocoSsd.load({ base: 'lite_mobilenet_v2' }); $('aiState').textContent = 'IA prête : reconnaît personnes et animaux.'; }
+  catch { $('aiState').textContent = "L'IA n'a pas pu démarrer. Mouvement et son fonctionnent quand même."; }
+}
+function stopCamera() {
+  disarm(true);
+  cancelAnimationFrame(loopId);
+  stream?.getTracks().forEach(t => t.stop()); stream = null;
+  audioCtx?.close(); audioCtx = analyser = null;
+  video.srcObject = null; prevFrame = null; detections = [];
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  $('empty').hidden = false;
+  ['armBtn', 'snapBtn', 'nightBtn', 'stopBtn'].forEach(id => $(id).disabled = true);
+  setStatus('off', 'Caméra éteinte');
+}
+
+/* ---------- Boucle d'analyse ---------- */
+function loop() {
+  loopId = requestAnimationFrame(loop);
+  if (!video.videoWidth) return;
+  const s = readSettingsCached();
+  const now = performance.now();
+  $('osdClock').textContent = new Date().toLocaleTimeString('fr-FR');
+
+  if (overlay.width !== video.videoWidth) { overlay.width = video.videoWidth; overlay.height = video.videoHeight; }
+
+  // Mouvement : différence entre deux images réduites à 64×48
+  sctx.drawImage(video, 0, 0, 64, 48);
+  const px = sctx.getImageData(0, 0, 64, 48).data;
+  const gray = new Uint8Array(64 * 48);
+  for (let i = 0; i < gray.length; i++) gray[i] = (px[i * 4] * 3 + px[i * 4 + 1] * 6 + px[i * 4 + 2]) / 10;
+  const changed = [];
+  if (prevFrame) for (let i = 0; i < gray.length; i++) if (Math.abs(gray[i] - prevFrame[i]) > 28) changed.push(i);
+  prevFrame = gray;
+  motionLevel = motionLevel * 0.6 + (changed.length / gray.length) * 0.4;
+  const motionHot = s.motionOn && motionLevel > motionThreshold(s.motionSens);
+  setMeter('motionFill', Math.min(100, motionLevel * 100 / MOTION_SCALE), motionHot);
+
+  // Son : niveau RMS converti en échelle 0–100
+  if (analyser) {
+    analyser.getFloatTimeDomainData(audioBuf);
+    let sum = 0; for (const v of audioBuf) sum += v * v;
+    const db = 20 * Math.log10(Math.sqrt(sum / audioBuf.length) + 1e-8);
+    soundLevel = Math.max(0, Math.min(100, (db + 80) * 1.25));
+    const hot = s.soundOn && soundLevel > s.soundThr;
+    if (hot) { if (!loudSince) loudSince = now; } else loudSince = 0;
+    setMeter('soundFill', soundLevel, hot);
+    if (armed && loudSince && now - loudSince > 400) trigger('son', 'Bruit détecté', `Bruit dans le ${s.room || 'logement'}`);
+  }
+
+  // IA : une analyse toutes les 400 ms
+  if (model && s.aiOn && now - lastDetect > 400 && !loop.busy) {
+    lastDetect = now; loop.busy = true;
+    model.detect(video, 10, 0.3).then(res => {
+      detections = res.filter(d => CLASSES[d.class] && d.score * 100 >= s.conf);
+      const hit = detections.find(d => s.classes.includes(d.class));
+      if (armed && hit) trigger('ia', `${CLASSES[hit.class]} détecté${hit.class === 'person' ? 'e' : ''}`,
+        `${CLASSES[hit.class]} détecté${hit.class === 'person' ? 'e' : ''} dans le ${s.room || 'logement'}`);
+    }).catch(() => {}).finally(() => loop.busy = false);
+  } else if (!s.aiOn) detections = [];
+
+  if (armed && motionHot && !(model && s.aiOn && s.classes.length && detections.length)) trigger('mouvement', 'Mouvement', `Mouvement dans le ${s.room || 'logement'}`);
+
+  draw(changed, s);
+}
+let cachedSettings = null, cachedAt = 0;
+function readSettingsCached() { const n = performance.now(); if (!cachedSettings || n - cachedAt > 500) { cachedSettings = readSettings(); cachedAt = n; } return cachedSettings; }
+function setMeter(id, pct, hot) { const f = $(id); f.style.width = pct + '%'; f.classList.toggle('hot', !!hot); }
+
+function draw(changed, s) {
+  const w = overlay.width, h = overlay.height;
+  octx.clearRect(0, 0, w, h);
+  if (s.motionOn) {
+    octx.fillStyle = 'rgba(232,176,74,0.28)';
+    const cw = w / 64, ch = h / 48;
+    for (const i of changed) octx.fillRect((i % 64) * cw, Math.floor(i / 64) * ch, cw, ch);
+  }
+  octx.lineWidth = Math.max(2, w / 320);
+  octx.font = `600 ${Math.max(14, w / 45)}px "Schibsted Grotesk", system-ui, sans-serif`;
+  for (const d of detections) {
+    const [x, y, bw, bh] = d.bbox;
+    const watched = s.classes.includes(d.class);
+    octx.strokeStyle = watched ? '#ef4d3c' : '#4cc38a';
+    octx.strokeRect(x, y, bw, bh);
+    const label = `${CLASSES[d.class]} ${Math.round(d.score * 100)} %`;
+    const tw = octx.measureText(label).width + 12, th = Math.max(20, w / 36);
+    octx.fillStyle = octx.strokeStyle; octx.fillRect(x, Math.max(0, y - th), tw, th);
+    octx.fillStyle = '#fff'; octx.fillText(label, x + 6, Math.max(0, y - th) + th * 0.75);
+  }
+}
+
+/* ---------- Armement ---------- */
+function arm() {
+  if (armed || arming) return;
+  const s = readSettings();
+  if (s.alNotif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  let n = 10;
+  $('countdown').hidden = false; $('countdown').textContent = n;
+  setStatus('arming', 'Activation…');
+  $('armBtn').textContent = '✋ Annuler'; $('armBtn').className = 'btn';
+  speak(`Surveillance dans ${n} secondes`);
+  arming = setInterval(() => {
+    n--; $('countdown').textContent = n;
+    if (n <= 0) {
+      clearInterval(arming); arming = null; $('countdown').hidden = true;
+      armed = true; for (const k in lastAlert) delete lastAlert[k];
+      setStatus('armed', 'Surveillance active');
+      $('armBtn').textContent = '🔓 Désactiver'; $('armBtn').className = 'btn danger';
+      requestWakeLock();
+      addEvent('info', 'Surveillance activée', snapshot());
+    }
+  }, 1000);
+}
+function disarm(silent) {
+  if (arming) { clearInterval(arming); arming = null; $('countdown').hidden = true; }
+  const was = armed; armed = false;
+  if (stream) setStatus('on', 'Caméra allumée');
+  $('armBtn').textContent = '🛡️ Activer la surveillance'; $('armBtn').className = 'btn primary';
+  wakeLock?.release().catch(() => {}); wakeLock = null;
+  if (was && !silent) { addEvent('info', 'Surveillance désactivée', null); speak('Surveillance désactivée'); }
+}
+async function requestWakeLock() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
+document.addEventListener('visibilitychange', () => { if (armed && document.visibilityState === 'visible') requestWakeLock(); });
+
+/* ---------- Alertes ---------- */
+function trigger(type, title, phrase) {
+  const s = readSettingsCached(), now = Date.now();
+  if (lastAlert[type] && now - lastAlert[type] < s.cooldown * 1000) return;
+  lastAlert[type] = now;
+  addEvent(type, title, snapshot());
+  setStatus('alert', title);
+  clearTimeout(trigger.t); trigger.t = setTimeout(() => armed && setStatus('armed', 'Surveillance active'), 4000);
+  if (s.alBeep) beep();
+  if (s.alVoice) speak(phrase);
+  if (s.alNotif && 'Notification' in window && Notification.permission === 'granted') {
+    try { new Notification('Veilleur · ' + title, { body: `${phrase} à ${new Date().toLocaleTimeString('fr-FR')}`, tag: 'veilleur-' + type }); } catch {}
+  }
+}
+function beep() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [0, 0.18, 0.36].forEach(d => {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = 880; o.type = 'square'; g.gain.setValueAtTime(0.0001, t + d);
+    g.gain.exponentialRampToValueAtTime(0.15, t + d + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.14);
+    o.connect(g).connect(audioCtx.destination); o.start(t + d); o.stop(t + d + 0.15);
+  });
+}
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; u.rate = 1.05;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+
+/* ---------- Journal ---------- */
+function snapshot() {
+  if (!video.videoWidth) return null;
+  const c = document.createElement('canvas'); c.width = 320; c.height = Math.round(320 * video.videoHeight / video.videoWidth);
+  const x = c.getContext('2d');
+  if (night) x.filter = 'brightness(1.8) contrast(1.15) grayscale(1)';
+  x.drawImage(video, 0, 0, c.width, c.height);
+  x.filter = 'none'; x.drawImage(overlay, 0, 0, c.width, c.height);
+  x.fillStyle = 'rgba(0,0,0,.55)'; x.fillRect(0, c.height - 18, c.width, 18);
+  x.fillStyle = '#fff'; x.font = '11px monospace';
+  x.fillText(`${(readSettingsCached().room || '').toUpperCase()}  ${new Date().toLocaleString('fr-FR')}`, 6, c.height - 5);
+  return c.toDataURL('image/jpeg', 0.72);
+}
+function addEvent(type, title, img) {
+  events.unshift({ type, title, img, at: Date.now() });
+  events = events.slice(0, 60);
+  // Si le stockage est plein, on retire les plus anciennes images
+  while (!store.set('events', events) && events.length > 1) events.pop();
+  renderEvents();
+}
+function renderEvents() {
+  const today = new Date().toDateString();
+  const todays = events.filter(e => new Date(e.at).toDateString() === today);
+  const count = t => todays.filter(e => e.type === t).length;
+  $('stats').innerHTML = `
+    <span class="stat">Aujourd'hui · IA ${count('ia')}</span>
+    <span class="stat">Mouvement ${count('mouvement')}</span>
+    <span class="stat">Son ${count('son')}</span>`;
+  if (!events.length) { $('events').innerHTML = '<div class="no-events">Aucun événement. Active la surveillance : chaque alerte apparaîtra ici avec une photo.</div>'; return; }
+  $('events').innerHTML = events.map((e, i) => `
+    <article class="event" data-type="${e.type}">
+      ${e.img ? `<img src="${e.img}" alt="${e.title}" data-i="${i}" loading="lazy">` : ''}
+      <div class="meta"><span class="what">${e.title}</span><span class="when">${new Date(e.at).toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></div>
+    </article>`).join('');
+}
+$('events').addEventListener('click', e => {
+  const i = e.target.dataset?.i; if (i === undefined) return;
+  const ev = events[+i];
+  $('viewerImg').src = ev.img; $('viewerDl').href = ev.img;
+  $('viewerDl').download = `veilleur-${new Date(ev.at).toISOString().replace(/[:.]/g, '-')}.jpg`;
+  $('viewer').hidden = false;
+});
+$('viewerClose').onclick = () => $('viewer').hidden = true;
+$('viewer').addEventListener('click', e => { if (e.target.id === 'viewer') $('viewer').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').hidden = true; });
+$('clearBtn').addEventListener('click', () => {
+  if ($('clearBtn').dataset.confirm) { events = []; store.set('events', events); renderEvents(); delete $('clearBtn').dataset.confirm; $('clearBtn').textContent = '🗑️ Vider le journal'; return; }
+  $('clearBtn').dataset.confirm = '1'; $('clearBtn').textContent = 'Confirmer la suppression ?';
+  setTimeout(() => { delete $('clearBtn').dataset.confirm; $('clearBtn').textContent = '🗑️ Vider le journal'; }, 4000);
+});
+
+/* ---------- Commandes vocales ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, voiceOn = false;
+function toggleVoice() {
+  if (!SR) { toast('Commandes vocales non prises en charge par ce navigateur (essaie Chrome ou Edge).'); return; }
+  voiceOn = !voiceOn; $('voiceBtn').setAttribute('aria-pressed', voiceOn);
+  if (voiceOn) {
+    rec = new SR(); rec.lang = 'fr-FR'; rec.continuous = true; rec.interimResults = false;
+    rec.onresult = ev => { const t = ev.results[ev.results.length - 1][0].transcript.toLowerCase().trim(); $('heard').textContent = '« ' + t + ' »'; handleCommand(t); };
+    rec.onend = () => { if (voiceOn) try { rec.start(); } catch {} };
+    rec.onerror = ev => { if (ev.error === 'not-allowed') { voiceOn = false; $('voiceBtn').setAttribute('aria-pressed', false); toast('Micro refusé pour les commandes vocales.'); } };
+    rec.start(); $('heard').textContent = "J'écoute…";
+  } else { rec?.stop(); $('heard').textContent = ''; }
+}
+function handleCommand(t) {
+  if (/d[ée]sactiv|arr[êe]te|stop/.test(t)) { disarm(); return; }
+  if (/activ|surveill/.test(t)) { if (!stream) startCamera().then(arm); else arm(); return; }
+  if (/photo|capture/.test(t)) { takePhoto(); return; }
+  if (/nuit/.test(t)) { toggleNight(); return; }
+  if (/rapport|bilan|r[ée]sum/.test(t)) {
+    const today = new Date().toDateString();
+    const n = events.filter(e => e.type !== 'info' && new Date(e.at).toDateString() === today).length;
+    speak(n ? `${n} événement${n > 1 ? 's' : ''} aujourd'hui. Le dernier : ${events.find(e => e.type !== 'info').title} à ${new Date(events.find(e => e.type !== 'info').at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}.` : "Rien à signaler aujourd'hui.");
+  }
+}
+
+/* ---------- Boutons ---------- */
+function takePhoto() { const img = snapshot(); if (img) { addEvent('photo', 'Photo manuelle', img); toast('Photo ajoutée au journal'); } }
+function toggleNight() { night = !night; $('screen').classList.toggle('night', night); $('nightBtn').setAttribute('aria-pressed', night); }
+$('startBtn').onclick = startCamera;
+$('stopBtn').onclick = stopCamera;
+$('armBtn').onclick = () => (armed || arming) ? disarm() : arm();
+$('snapBtn').onclick = takePhoto;
+$('nightBtn').onclick = toggleNight;
+$('voiceBtn').onclick = toggleVoice;
+renderEvents();
+</script>
+</body>
+</html>
